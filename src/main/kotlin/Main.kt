@@ -3,7 +3,7 @@ package org.example
 import java.io.File
 
 fun main() {
-    aoc2_2()
+    aoc3_2()
 }
 
 fun aoc1_1() {
@@ -42,7 +42,11 @@ fun aoc1_2() {
         val value = l.substring(1).toInt()
 
         repeat(value) {
-            if (direction == 'R') { start++ } else { start-- }
+            if (direction == 'R') {
+                start++
+            } else {
+                start--
+            }
             if (start == 100) start = 0
             if (start == -1) start = 99
             if (start == 0) result++
@@ -90,4 +94,38 @@ fun aoc2_2() {
         }
     println("Invalid: ${invalid.joinToString()}")
     println("Result: ${invalid.sum()}")
+}
+
+fun aoc3_1() {
+    val file = File("./data/3/input.txt")
+    val result = file.readLines().mapNotNull {
+        val line = it.map { it.toString().toInt() }
+        if (line.size < 2) return@mapNotNull null
+        val max = line.subList(0, line.size - 1).max()
+        val mi = line.indexOfFirst { it == max }
+        val max2 = line.subList(mi + 1, line.size).max()
+        "$max$max2".toInt()
+    }.sum()
+    println("Result: $result")
+}
+
+fun aoc3_2() {
+    val file = File("./data/3/input.txt")
+    val result = file.readLines().mapNotNull { l ->
+        val line = l.map { it.toString().toInt() }
+        if (line.size < 12) return@mapNotNull null
+
+        var numbers = line
+        var joltage = ""
+        while (joltage.length < 12) {
+            var limit = numbers.size - (12 - joltage.length)
+            val head = numbers.take(limit + 1)
+            val max = head.max()
+            val maxIndex = head.indexOfFirst { it == max }
+            joltage += max.toString()
+            numbers = numbers.subList(maxIndex + 1, numbers.size)
+        }
+        joltage.toLong()
+    }.sum()
+    println("Result: $result")
 }
