@@ -8,7 +8,7 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 fun main() {
-    aoc9_2()
+    aoc10_2()
 }
 
 fun aoc1_1() {
@@ -593,4 +593,152 @@ private fun List<IntRange>.apply(next: List<IntRange>): List<IntRange> {
     }
 
     return active.distinct().sortedBy { it.first }
+}
+
+fun aoc10_1() {
+    val file = File("./data/10/input.txt")
+
+    class Line(
+        val expected: Int,
+        val switches: List<Int>
+    )
+    val machines = file.readLines().map { l ->
+        val data = l.split(" ")
+        val expBin = data[0].let { s ->
+            s.substring(1, s.length - 1)
+                .map { if (it == '.') 0 else 1 }
+                .joinToString("")
+        }
+        val switchesBin = data.drop(1).dropLast(1).map { s ->
+            val nums = s.substring(1, s.length - 1).split(',').map { it.toInt() }
+            var switchBin = ""
+            for (i in expBin.indices) {
+                switchBin += if (nums.contains(i)) "1" else "0"
+            }
+            switchBin
+        }
+        Line(expBin.toInt(2), switchesBin.map { it.toInt(2) })
+    }
+
+    val min = machines.map { machine ->
+
+        val allComb = allSubsets(machine.switches)
+
+        allComb.sortedBy { it.size }
+            .first { comb ->
+                comb.fold(0) { acc, i -> acc.xor(i) } == machine.expected
+            }
+            .size
+    }
+
+    println("Result: ${min.sum()}")
+}
+
+fun aoc10_2() {
+    val file = File("./data/10/input.txt")
+
+    class Line(
+        val expected: List<Int>,
+        val switches: List<List<Boolean>>
+    )
+    val machines = file.readLines().map { l ->
+        val data = l.split(" ")
+        val expected = data.last().let { s ->
+            s.substring(1, s.length - 1)
+                .split(',')
+                .map { it.toInt() }
+        }
+
+        val switchesBin = data.drop(1).dropLast(1).map { s ->
+            val nums = s.substring(1, s.length - 1).split(',').map { it.toInt() }
+            val switchBin = mutableListOf<Boolean>()
+            for (i in expected.indices) {
+                switchBin += nums.contains(i)
+            }
+            switchBin
+        }
+
+        Line(expected, switchesBin)
+    }
+
+    val mins = machines.map { machine ->
+        findCLicks(machine.expected, machine.switches)!!
+    }
+
+    val result = mins.sum()
+    println("Result: $result")
+}
+
+fun <T> allSubsets(items: List<T>): List<List<T>> {
+    val n = items.size
+    val result = ArrayList<List<T>>(1.shl(n) - 1)
+    for (mask in 1 until (1 shl n)) {
+        val subset = ArrayList<T>()
+        var i = 0
+        var m = mask
+        while (m != 0) {
+            if ((m and 1) == 1) subset.add(items[i])
+            i++
+            m = m ushr 1
+        }
+        result.add(subset)
+    }
+    return result
+}
+
+fun findCLicks(
+    expected: List<Int>,
+    switches: List<List<Boolean>>,
+): Int? {
+    if (expected.any { it < 0 }) {
+        return null
+    }
+
+    if (expected.filter { it > 0 }.size <= 1) {
+        return expected.max()
+    } else {
+        val num = expected.filter { it > 0 }.min()
+        val numIndex = expected.indexOf(num)
+        require(numIndex >= 0)
+
+        val currentSwitchesIndexes = switches
+            .mapIndexed { index, booleans -> index to booleans }
+            .filter { (index, booleans) -> booleans[numIndex] }
+            .map { it.first }
+
+        val d = combinationsWithRepetition(currentSwitchesIndexes, num).mapNotNull { clickList ->
+            val newExpected = expected.toMutableList()
+             clickList.forEach { clickIndex ->
+                 val click = switches[clickIndex]
+                 click.forEachIndexed { index, b ->
+                     if (b) newExpected[index]--
+                 }
+             }
+            findCLicks(newExpected, switches)
+        }.map { it + num }
+        if (d.isEmpty()) return null
+        return d.min()
+    }
+}
+
+fun combinationsWithRepetition(switches: List<Int>, count: Int): List<List<Int>> {
+    val n = switches.size
+    val k = count
+    if (k <= 0 || n == 0) return emptyList()
+    val result = mutableListOf<List<Int>>()
+
+    val indices = MutableList(k) {0}
+
+    while (true) {
+        val combo = List(k) { i -> switches[indices[i]] }
+        result.add(combo)
+        var pos = k - 1
+        while (pos >= 0 && indices[pos] == n - 1) pos--
+        if (pos < 0) break
+        indices[pos]++
+        val fill = indices[pos]
+        for (j in pos + 1 until k) indices[j] = fill
+    }
+
+    return result
 }
