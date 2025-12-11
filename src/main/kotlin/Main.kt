@@ -14,7 +14,7 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 fun main() {
-    aoc10_2()
+    aoc11_2()
 }
 
 fun aoc1_1() {
@@ -705,7 +705,7 @@ class OneTask(
 )
 
 fun log(msg: String) {
-    //println(msg)
+    println(msg)
 }
 
 fun findCLicksW(
