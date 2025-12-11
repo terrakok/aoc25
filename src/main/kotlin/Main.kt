@@ -1,5 +1,10 @@
 package org.example
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
@@ -634,8 +639,8 @@ fun aoc10_1() {
     println("Result: ${min.sum()}")
 }
 
-fun aoc10_2() {
-    val file = File("./data/10/input.txt")
+fun aoc10_2() = runBlocking {
+    val file = File("./data/10/test.txt")
 
     class Line(
         val expected: List<Int>,
@@ -659,14 +664,36 @@ fun aoc10_2() {
         }
 
         Line(expected, switchesBin)
-    }
+    }.sortedBy { it.expected.max() }
+//
+//    val res = coroutineScope {
+//        val mins = machines.mapIndexed { ii, machine ->
+//            async(Dispatchers.Default) {
+//                println("machine[$ii]: ${machine.expected} - ${machine.switches.map { it.joinToString("") { if (it) "1" else "0"} }}")
+//                findCLicks(machine.expected, machine.switches)!!.also { println("DONE ${ii}") }
+//            }
+//        }
+//
+//        val result = mins.awaitAll().sum()
+//        result
+//    }
+//    println("Result: $res")
 
-    val mins = machines.map { machine ->
-        findCLicks(machine.expected, machine.switches)!!
-    }
 
-    val result = mins.sum()
-    println("Result: $result")
+
+    val res = coroutineScope {
+        val mins = machines.mapIndexed { ii, machine ->
+//            async(Dispatchers.Default) {
+                println("machine[$ii]: ${machine.expected} - ${machine.switches.map { it.joinToString("") { if (it) "1" else "0"} }}")
+                findCLicksW(listOf(OneTask(0, machine.expected, machine.switches)))!!.also { println("${ii} DONE=$it") }
+//            }
+        }
+
+//        val result = mins.awaitAll().sum()
+        val result = mins.sum()
+        result
+    }
+    println("Result: $res")
 }
 
 fun <T> allSubsets(items: List<T>): List<List<T>> {
@@ -691,10 +718,11 @@ fun findCLicks(
     switches: List<List<Boolean>>,
 ): Int? {
     if (expected.any { it < 0 }) {
-        return null
+        error("Negative expected")
     }
 
     if (expected.filter { it > 0 }.size <= 1) {
+        print("*")
         return expected.max()
     } else {
         val num = expected.filter { it > 0 }.min()
@@ -707,18 +735,91 @@ fun findCLicks(
             .map { it.first }
 
         val d = combinationsWithRepetition(currentSwitchesIndexes, num).mapNotNull { clickList ->
+            val indexToCount = clickList.groupBy { it }.map { (index, list) -> index to list.size }
+
             val newExpected = expected.toMutableList()
-             clickList.forEach { clickIndex ->
-                 val click = switches[clickIndex]
-                 click.forEachIndexed { index, b ->
-                     if (b) newExpected[index]--
-                 }
-             }
+            indexToCount.forEach { (index, count) ->
+                val click = switches[index]
+                click.forEachIndexed { i, b ->
+                    if (b) {
+                        newExpected[i] -= count
+                        if (newExpected[i] < 0) return@mapNotNull null
+                    }
+                }
+            }
+
             findCLicks(newExpected, switches)
         }.map { it + num }
         if (d.isEmpty()) return null
         return d.min()
     }
+}
+
+class OneTask(
+    val clicks: Int = 0,
+    val expected: List<Int>,
+    val switches: List<List<Boolean>>,
+)
+
+fun findCLicksW(
+    input: List<OneTask>,
+): Int? {
+    val tasks = input.filterNot { t -> t.expected.any { n -> n < 0 } }
+
+    require(tasks.isNotEmpty()) { "No tasks" }
+
+    tasks.firstOrNull { t ->
+        t.expected.all { n -> n == 0 }
+    }?.let {
+        error("WTF!")
+    }
+
+    println("tasks: ${tasks.size}")
+
+    val wtasks = tasks.map { t ->
+        val expected = t.expected
+        val switches = t.switches
+
+        val num = expected.filter { it > 0 }.min()
+        val numIndex = expected.indexOf(num)
+        require(numIndex >= 0)
+
+        val numActionSwitchesIndexes = switches
+            .mapIndexed { index, booleans -> index to booleans }
+            .filter { (index, booleans) -> booleans[numIndex] }
+            .map { it.first }
+
+        val combo = combinationsWithRepetition(numActionSwitchesIndexes, num)
+
+        val new = combo.mapNotNull { clickList ->
+            val indexToCount = clickList.groupBy { it }.map { (index, list) -> index to list.size }
+            val newExpected = expected.toMutableList()
+            indexToCount.forEach { (index, count) ->
+                val click = switches[index]
+                click.forEachIndexed { i, b ->
+                    if (b) {
+                        newExpected[i] -= count
+                        if (newExpected[i] < 0) return@mapNotNull null
+                    }
+                }
+            }
+
+            println("newExpected: ${newExpected.joinToString(",")}")
+            newExpected
+        }
+        if (new.isEmpty()) return null
+
+        new.forEach { n ->
+            if (n.all { it == 0 }) {
+                println("DONE!")
+                return@findCLicksW t.clicks + num
+            }
+        }
+
+        val newTasks = new.map { OneTask(t.clicks + num, it, switches) }
+        newTasks
+    }.flatten()
+    return findCLicksW(wtasks)
 }
 
 fun combinationsWithRepetition(switches: List<Int>, count: Int): List<List<Int>> {
