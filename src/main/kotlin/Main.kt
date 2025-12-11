@@ -7,6 +7,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -640,7 +641,7 @@ fun aoc10_1() {
 }
 
 fun aoc10_2() = runBlocking {
-    val file = File("./data/10/test.txt")
+    val file = File("./data/10/input.txt")
 
     class Line(
         val expected: List<Int>,
@@ -664,33 +665,17 @@ fun aoc10_2() = runBlocking {
         }
 
         Line(expected, switchesBin)
-    }.sortedBy { it.expected.max() }
-//
-//    val res = coroutineScope {
-//        val mins = machines.mapIndexed { ii, machine ->
-//            async(Dispatchers.Default) {
-//                println("machine[$ii]: ${machine.expected} - ${machine.switches.map { it.joinToString("") { if (it) "1" else "0"} }}")
-//                findCLicks(machine.expected, machine.switches)!!.also { println("DONE ${ii}") }
-//            }
-//        }
-//
-//        val result = mins.awaitAll().sum()
-//        result
-//    }
-//    println("Result: $res")
-
-
+    }.sortedByDescending { it.expected.max() }
 
     val res = coroutineScope {
         val mins = machines.mapIndexed { ii, machine ->
-//            async(Dispatchers.Default) {
+            async(Dispatchers.Default) {
                 println("machine[$ii]: ${machine.expected} - ${machine.switches.map { it.joinToString("") { if (it) "1" else "0"} }}")
-                findCLicksW(listOf(OneTask(0, machine.expected, machine.switches)))!!.also { println("${ii} DONE=$it") }
-//            }
+                findCLicksW(Int.MAX_VALUE, listOf(OneTask(0, machine.expected, machine.switches))).also { println("${ii} DONE=$it") }!!
+            }
         }
 
-//        val result = mins.awaitAll().sum()
-        val result = mins.sum()
+        val result = mins.awaitAll().sum()
         result
     }
     println("Result: $res")
@@ -713,58 +698,29 @@ fun <T> allSubsets(items: List<T>): List<List<T>> {
     return result
 }
 
-fun findCLicks(
-    expected: List<Int>,
-    switches: List<List<Boolean>>,
-): Int? {
-    if (expected.any { it < 0 }) {
-        error("Negative expected")
-    }
-
-    if (expected.filter { it > 0 }.size <= 1) {
-        print("*")
-        return expected.max()
-    } else {
-        val num = expected.filter { it > 0 }.min()
-        val numIndex = expected.indexOf(num)
-        require(numIndex >= 0)
-
-        val currentSwitchesIndexes = switches
-            .mapIndexed { index, booleans -> index to booleans }
-            .filter { (index, booleans) -> booleans[numIndex] }
-            .map { it.first }
-
-        val d = combinationsWithRepetition(currentSwitchesIndexes, num).mapNotNull { clickList ->
-            val indexToCount = clickList.groupBy { it }.map { (index, list) -> index to list.size }
-
-            val newExpected = expected.toMutableList()
-            indexToCount.forEach { (index, count) ->
-                val click = switches[index]
-                click.forEachIndexed { i, b ->
-                    if (b) {
-                        newExpected[i] -= count
-                        if (newExpected[i] < 0) return@mapNotNull null
-                    }
-                }
-            }
-
-            findCLicks(newExpected, switches)
-        }.map { it + num }
-        if (d.isEmpty()) return null
-        return d.min()
-    }
-}
-
 class OneTask(
     val clicks: Int = 0,
     val expected: List<Int>,
     val switches: List<List<Boolean>>,
 )
 
+fun log(msg: String) {
+    //println(msg)
+}
+
 fun findCLicksW(
+    minSucks: Int,
     input: List<OneTask>,
 ): Int? {
-    val tasks = input.filterNot { t -> t.expected.any { n -> n < 0 } }
+//    val done = input.filter { it.expected.all { n -> n == 0 } }.sortedBy { it.clicks }
+    val currentMinClicks = input.minOf { it.clicks }
+    if (minSucks <= currentMinClicks) return currentMinClicks
+
+//    done.forEach { d ->
+//        if (d.clicks <= currentMinClicks) return@findCLicksW d.clicks
+//    }
+
+    val tasks = input//.filter { t -> t !in done }
 
     require(tasks.isNotEmpty()) { "No tasks" }
 
@@ -774,11 +730,14 @@ fun findCLicksW(
         error("WTF!")
     }
 
-    println("tasks: ${tasks.size}")
+    log("tasks: ${tasks.size} =============================")
+    var sucks = minSucks
 
-    val wtasks = tasks.map { t ->
+    val wtasks = tasks.mapNotNull { t ->
         val expected = t.expected
         val switches = t.switches
+
+        log("expected: $expected switches: ${switches.map { it.joinToString("") { if (it) "1" else "0"} }}")
 
         val num = expected.filter { it > 0 }.min()
         val numIndex = expected.indexOf(num)
@@ -804,22 +763,35 @@ fun findCLicksW(
                 }
             }
 
-            println("newExpected: ${newExpected.joinToString(",")}")
             newExpected
         }
-        if (new.isEmpty()) return null
 
-        new.forEach { n ->
-            if (n.all { it == 0 }) {
-                println("DONE!")
-                return@findCLicksW t.clicks + num
-            }
+        log("num: $num -> ${new.size}")
+
+        if (new.isEmpty()) {
+            return@mapNotNull null
         }
 
-        val newTasks = new.map { OneTask(t.clicks + num, it, switches) }
-        newTasks
+        val clickCount = t.clicks + num
+        val success = new.firstOrNull { n -> n.all { it == 0 } }
+
+        if (success != null) {
+            sucks = minOf(sucks, clickCount)
+            listOf(OneTask(clickCount, success, switches))
+        } else {
+            new.map { OneTask(clickCount, it, switches) }
+        }
     }.flatten()
-    return findCLicksW(wtasks)
+    if (wtasks.isEmpty()) {
+//        if (done.isEmpty()) {
+//            log("ERROR: ${tasks.joinToString("\n") { it.expected.joinToString(",") + " -> " + it.switches.joinToString { it.joinToString("") { if (it) "1" else "0"} } }}")
+//            return null
+//        }
+
+        return sucks //done.first().clicks
+    }
+
+    return findCLicksW(sucks, wtasks)
 }
 
 fun combinationsWithRepetition(switches: List<Int>, count: Int): List<List<Int>> {
