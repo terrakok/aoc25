@@ -28,16 +28,32 @@ fun aoc11_2() {
         data[name] = paths
     }
 
+    val ways = data.keys.associateWith { mutableListOf(0) }
+
     var paths = listOf<List<String>>()
     val result = mutableListOf<List<String>>()
+    val knownvertexes = mutableSetOf<String>()
+
     tailrec fun Map<String, List<String>>.findAllPaths2(end: String) {
+        log("paths: ${paths.size} result: ${result.size}")
         val newPaths = mutableListOf<List<String>>()
-        paths.filter {
-            if (it.last() == end) {
-                result.add(it)
+        paths.filter { p ->
+            val last = p.last()
+            if (last == end) {
+                result.add(p)
+                knownvertexes.addAll(p)
                 false
             } else {
-                true
+                if (knownvertexes.contains(last)) {
+                    val tails = result.mapNotNull { r ->
+                        r.indexOf(last).takeIf { it != -1 }?.let { r.subList(it, r.size) }
+                    }
+                    println("tails: ${tails.size}")
+                    tails.forEach { tail -> result.add(p + tail) }
+                    false
+                } else {
+                    true
+                }
             }
         }.forEach { p ->
             val last = p.last()
@@ -49,30 +65,20 @@ fun aoc11_2() {
                     if (p.contains(v)) {
                         //internal cycle
                     } else {
-                        val known = result.map { it.indexOf(v) to it }.filter { it.first != -1 }
-                        if (known.isNotEmpty()) {
-                            known.forEach { (i, kn) ->
-                                //known path
-                                result.add(p + kn.subList(i, kn.size))
-                            }
-                        } else {
-                            newPaths.add(p + v)
-                        }
+                        newPaths.add(p + v)
                     }
                 }
             }
         }
 
         paths = newPaths
-
-        log("paths: ${paths.size} done: ${result.size}")
         if (paths.isEmpty()) return
 
         findAllPaths2(end)
     }
 
-    paths = listOf(listOf("fft"))
-    data.findAllPaths2("dac")
+    paths = listOf(listOf("svr"))
+    data.findAllPaths2("fft")
 
     println("Result: ${result.size}")
 }
