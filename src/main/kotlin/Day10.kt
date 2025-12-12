@@ -1,10 +1,6 @@
 package org.example
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.runBlocking
+import com.google.ortools.sat.*
 import java.io.File
 
 object Day10 {
@@ -15,6 +11,7 @@ object Day10 {
             val expected: Int,
             val switches: List<Int>
         )
+
         val machines = file.readLines().map { l ->
             val data = l.split(" ")
             val expBin = data[0].let { s ->
@@ -47,47 +44,6 @@ object Day10 {
         println("Result: ${min.sum()}")
     }
 
-    fun second() = runBlocking {
-        val file = File("./data/10/input.txt")
-
-        class Line(
-            val expected: List<Int>,
-            val switches: List<List<Boolean>>
-        )
-        val machines = file.readLines().map { l ->
-            val data = l.split(" ")
-            val expected = data.last().let { s ->
-                s.substring(1, s.length - 1)
-                    .split(',')
-                    .map { it.toInt() }
-            }
-
-            val switchesBin = data.drop(1).dropLast(1).map { s ->
-                val nums = s.substring(1, s.length - 1).split(',').map { it.toInt() }
-                val switchBin = mutableListOf<Boolean>()
-                for (i in expected.indices) {
-                    switchBin += nums.contains(i)
-                }
-                switchBin
-            }
-
-            Line(expected, switchesBin)
-        }.sortedByDescending { it.expected.max() }
-
-        val res = coroutineScope {
-            val mins = machines.mapIndexed { ii, machine ->
-                async(Dispatchers.Default) {
-                    println("machine[$ii]: ${machine.expected} - ${machine.switches.map { it.joinToString("") { if (it) "1" else "0"} }}")
-                    findCLicksW(Int.MAX_VALUE, listOf(OneTask(0, machine.expected, machine.switches))).also { println("${ii} DONE=$it") }!!
-                }
-            }
-
-            val result = mins.awaitAll().sum()
-            result
-        }
-        println("Result: $res")
-    }
-
     fun <T> allSubsets(items: List<T>): List<List<T>> {
         val n = items.size
         val result = ArrayList<List<T>>(1.shl(n) - 1)
@@ -105,121 +61,95 @@ object Day10 {
         return result
     }
 
-    class OneTask(
-        val clicks: Int = 0,
-        val expected: List<Int>,
-        val switches: List<List<Boolean>>,
-    )
+    fun second() {
+        val file = File("./data/10/input.txt")
 
-    fun log(msg: String) {
-        println(msg)
-    }
+        data class Machine(
+            val expected: List<Int>,
+            val switches: List<List<Int>>
+        )
 
-    fun findCLicksW(
-        minSucks: Int,
-        input: List<OneTask>,
-    ): Int? {
-//    val done = input.filter { it.expected.all { n -> n == 0 } }.sortedBy { it.clicks }
-        val currentMinClicks = input.minOf { it.clicks }
-        if (minSucks <= currentMinClicks) return currentMinClicks
+        val machines = file.readLines().map { l ->
+            val data = l.split(" ")
+            val expected = data.last().let { s ->
+                s.substring(1, s.length - 1)
+                    .split(',')
+                    .map { it.toInt() }
+            }
 
-//    done.forEach { d ->
-//        if (d.clicks <= currentMinClicks) return@findCLicksW d.clicks
-//    }
-
-        val tasks = input//.filter { t -> t !in done }
-
-        require(tasks.isNotEmpty()) { "No tasks" }
-
-        tasks.firstOrNull { t ->
-            t.expected.all { n -> n == 0 }
-        }?.let {
-            error("WTF!")
-        }
-
-        log("tasks: ${tasks.size} =============================")
-        var sucks = minSucks
-
-        val wtasks = tasks.mapNotNull { t ->
-            val expected = t.expected
-            val switches = t.switches
-
-            log("expected: $expected switches: ${switches.map { it.joinToString("") { if (it) "1" else "0"} }}")
-
-            val num = expected.filter { it > 0 }.min()
-            val numIndex = expected.indexOf(num)
-            require(numIndex >= 0)
-
-            val numActionSwitchesIndexes = switches
-                .mapIndexed { index, booleans -> index to booleans }
-                .filter { (index, booleans) -> booleans[numIndex] }
-                .map { it.first }
-
-            val combo = combinationsWithRepetition(numActionSwitchesIndexes, num)
-
-            val new = combo.mapNotNull { clickList ->
-                val indexToCount = clickList.groupBy { it }.map { (index, list) -> index to list.size }
-                val newExpected = expected.toMutableList()
-                indexToCount.forEach { (index, count) ->
-                    val click = switches[index]
-                    click.forEachIndexed { i, b ->
-                        if (b) {
-                            newExpected[i] -= count
-                            if (newExpected[i] < 0) return@mapNotNull null
-                        }
-                    }
+            val switchesBin = data.drop(1).dropLast(1).map { s ->
+                val nums = s.substring(1, s.length - 1).split(',').map { it.toInt() }
+                val switchBin = mutableListOf<Int>()
+                for (i in expected.indices) {
+                    switchBin.add(if (nums.contains(i)) 1 else 0)
                 }
-
-                newExpected
+                switchBin
             }
 
-            log("num: $num -> ${new.size}")
+            Machine(expected, switchesBin)
+        }.sortedBy { it.expected.max() }
 
-            if (new.isEmpty()) {
-                return@mapNotNull null
+
+        loadOrTools()
+
+            val clicks = machines.mapIndexed { index, machine ->
+                val (expected, switches) = machine
+                minClicks(expected, switches)
             }
 
-            val clickCount = t.clicks + num
-            val success = new.firstOrNull { n -> n.all { it == 0 } }
-
-            if (success != null) {
-                sucks = minOf(sucks, clickCount)
-                listOf(OneTask(clickCount, success, switches))
-            } else {
-                new.map { OneTask(clickCount, it, switches) }
-            }
-        }.flatten()
-        if (wtasks.isEmpty()) {
-//        if (done.isEmpty()) {
-//            log("ERROR: ${tasks.joinToString("\n") { it.expected.joinToString(",") + " -> " + it.switches.joinToString { it.joinToString("") { if (it) "1" else "0"} } }}")
-//            return null
-//        }
-
-            return sucks //done.first().clicks
-        }
-
-        return findCLicksW(sucks, wtasks)
+            println("Result: ${clicks.sum()}")
     }
 
-    fun combinationsWithRepetition(switches: List<Int>, count: Int): List<List<Int>> {
-        val n = switches.size
-        val k = count
-        if (k <= 0 || n == 0) return emptyList()
-        val result = mutableListOf<List<Int>>()
+    fun loadOrTools() {
+        try {
+            System.loadLibrary("jniortools")
+        } catch (e: UnsatisfiedLinkError) {
+            com.google.ortools.Loader.loadNativeLibraries()
+        }
+    }
 
-        val indices = MutableList(k) {0}
+    fun minClicks(expected: List<Int>, switches: List<List<Int>>): Int {
+        val N = expected.size
+        val M = switches.size
+        if (N == 0 || M == 0) return -1
 
-        while (true) {
-            val combo = List(k) { i -> switches[indices[i]] }
-            result.add(combo)
-            var pos = k - 1
-            while (pos >= 0 && indices[pos] == n - 1) pos--
-            if (pos < 0) break
-            indices[pos]++
-            val fill = indices[pos]
-            for (j in pos + 1 until k) indices[j] = fill
+        val model = CpModel()
+
+        val maxClickCount = expected.sum().toLong()
+        val xVariables = List(M) { model.newIntVar(0, maxClickCount, "x_$it") }
+
+        for (i in 0 until N) {
+            val coefficients = mutableListOf<Long>()
+            val variables = mutableListOf<IntVar>()
+
+            for (j in 0 until M) {
+                val coefficient = switches[j][i].toLong()
+                if (coefficient > 0) {
+                    coefficients.add(coefficient)
+                    variables.add(xVariables[j])
+                }
+            }
+
+            val linearExpr = LinearExpr.newBuilder()
+                .addWeightedSum(variables.toTypedArray(), coefficients.toLongArray())
+                .build()
+
+            model.addEquality(linearExpr, expected[i].toLong())
         }
 
-        return result
+        val objective = LinearExpr.sum(xVariables.toTypedArray())
+        model.minimize(objective)
+
+        val solver = CpSolver()
+        solver.getParameters().setMaxTimeInSeconds(5.0)
+
+        val status = solver.solve(model)
+
+        if (status == CpSolverStatus.OPTIMAL || status == CpSolverStatus.FEASIBLE) {
+            return solver.objectiveValue().toInt()
+        } else {
+            return -1
+        }
     }
+
 }
