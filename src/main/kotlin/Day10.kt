@@ -89,15 +89,13 @@ object Day10 {
             Machine(expected, switchesBin)
         }.sortedBy { it.expected.max() }
 
-
         loadOrTools()
+        val clicks = machines.map { machine ->
+            val (expected, switches) = machine
+            minClicks(expected, switches)
+        }
 
-            val clicks = machines.mapIndexed { index, machine ->
-                val (expected, switches) = machine
-                minClicks(expected, switches)
-            }
-
-            println("Result: ${clicks.sum()}")
+        println("Result: ${clicks.sum()}")
     }
 
     fun loadOrTools() {
@@ -109,47 +107,25 @@ object Day10 {
     }
 
     fun minClicks(expected: List<Int>, switches: List<List<Int>>): Int {
-        val N = expected.size
-        val M = switches.size
-        if (N == 0 || M == 0) return -1
-
         val model = CpModel()
 
-        val maxClickCount = expected.sum().toLong()
-        val xVariables = List(M) { model.newIntVar(0, maxClickCount, "x_$it") }
+        val maxClickCount = expected.max().toLong()
+        val xVariables = Array(switches.size) { model.newIntVar(0, maxClickCount, "x_$it") }
 
-        for (i in 0 until N) {
-            val coefficients = mutableListOf<Long>()
-            val variables = mutableListOf<IntVar>()
+        expected.mapIndexed { index, target ->
+            val linearExpr = LinearExpr.newBuilder().addWeightedSum(
+                /* exprs = */ xVariables,
+                /* coeffs = */ LongArray(switches.size) { i -> switches[i][index].toLong() }
+            ).build()
 
-            for (j in 0 until M) {
-                val coefficient = switches[j][i].toLong()
-                if (coefficient > 0) {
-                    coefficients.add(coefficient)
-                    variables.add(xVariables[j])
-                }
-            }
-
-            val linearExpr = LinearExpr.newBuilder()
-                .addWeightedSum(variables.toTypedArray(), coefficients.toLongArray())
-                .build()
-
-            model.addEquality(linearExpr, expected[i].toLong())
+            model.addEquality(linearExpr, target.toLong())
         }
 
-        val objective = LinearExpr.sum(xVariables.toTypedArray())
-        model.minimize(objective)
+        model.minimize(LinearExpr.sum(xVariables))
 
         val solver = CpSolver()
-        solver.getParameters().setMaxTimeInSeconds(5.0)
-
-        val status = solver.solve(model)
-
-        if (status == CpSolverStatus.OPTIMAL || status == CpSolverStatus.FEASIBLE) {
-            return solver.objectiveValue().toInt()
-        } else {
-            return -1
-        }
+        solver.solve(model)
+        return solver.objectiveValue().toInt()
     }
 
 }
