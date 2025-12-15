@@ -1,6 +1,7 @@
 package org.example
 
 import com.google.ortools.sat.*
+import com.sun.jna.platform.mac.SystemB
 import java.io.File
 
 object Day10 {
@@ -87,9 +88,8 @@ object Day10 {
             }
 
             Machine(expected, switchesBin)
-        }.sortedBy { it.expected.max() }
+        }
 
-        loadOrTools()
         val clicks = machines.map { machine ->
             val (expected, switches) = machine
             minClicks(expected, switches)
@@ -98,34 +98,91 @@ object Day10 {
         println("Result: ${clicks.sum()}")
     }
 
-    fun loadOrTools() {
-        try {
-            System.loadLibrary("jniortools")
-        } catch (e: UnsatisfiedLinkError) {
-            com.google.ortools.Loader.loadNativeLibraries()
-        }
-    }
-
     fun minClicks(expected: List<Int>, switches: List<List<Int>>): Int {
-        val model = CpModel()
-
-        val maxClickCount = expected.max().toLong()
-        val xVariables = Array(switches.size) { model.newIntVar(0, maxClickCount, "x_$it") }
-
-        expected.mapIndexed { index, target ->
-            val linearExpr = LinearExpr.newBuilder().addWeightedSum(
-                /* exprs = */ xVariables,
-                /* coeffs = */ LongArray(switches.size) { i -> switches[i][index].toLong() }
-            ).build()
-
-            model.addEquality(linearExpr, target.toLong())
+        val matrix = List(expected.size) { l ->
+            List(switches.size + 1) { i ->
+                (if (i < switches.size) switches[i] else expected)[l]
+            }
         }
 
-        model.minimize(LinearExpr.sum(xVariables))
+        val rref = matrix.rref()
 
-        val solver = CpSolver()
-        solver.solve(model)
-        return solver.objectiveValue().toInt()
+        if (rref.singleSolution()) {
+            return rref.sumOf { it.last() }
+        } else {
+            println()
+            println("MATRIX:\n${matrix.joinToString("\n") { it.joinToString(", ") }}")
+            println("RREF:\n${rref.joinToString("\n") { it.joinToString(", ") { it.toString().padStart(2) } }}")
+
+            return -1
+        }
     }
 
+
+    fun List<List<Int>>.rref(): List<List<Int>> {
+        val matrix = this.map { it.map { it.toDouble() }.toMutableList() }.toMutableList()
+        val numRows = matrix.size
+        val numCols = matrix[0].size
+        var lead = 0
+
+        for (r in 0 until numRows) {
+            if (lead >= numCols) {
+                break
+            }
+
+            var i = r
+            while (i < numRows && matrix[i][lead].toInt() == 0) {
+                i++
+            }
+
+            if (i == numRows) {
+                lead++
+                continue
+            }
+
+            // Поменять строки
+            val temp = matrix[i]
+            matrix[i] = matrix[r]
+            matrix[r] = temp
+
+            // Нормализовать ведущий элемент
+            val lv = matrix[r][lead]
+            for (j in matrix[r].indices) {
+                matrix[r][j] /= lv
+            }
+
+            // Обнулить другие элементы в ведущем столбце
+            for (i in 0 until numRows) {
+                if (i != r) {
+                    val coeff = matrix[i][lead]
+                    for (j in matrix[i].indices) {
+                        matrix[i][j] -= coeff * matrix[r][j]
+                    }
+                }
+            }
+
+            lead++
+        }
+
+        return matrix.map { it.map { it.toInt() } }
+    }
+
+    fun List<List<Int>>.singleSolution(): Boolean {
+        val m = filterNot { it.all { it == 0 } }
+        val l = m.map { it.dropLast(1) }
+        val r = m.map { it.last() }
+        return r.all { it >= 0 } && l.isE()
+    }
+
+    fun List<List<Int>>.isE(): Boolean {
+        val s = this.size
+        if (this.first().size < s) return false
+        for (i in 0 until s) {
+            for (j in 0 until s) {
+                if (i == j && this[i][j] != 1) return false
+                if (i != j && this[i][j] != 0) return false
+            }
+        }
+        return true
+    }
 }
