@@ -5,10 +5,8 @@ package org.example
 //}
 
 import java.io.File
-import java.util.Scanner
 import kotlin.math.abs
 import kotlin.math.round
-import kotlin.math.roundToInt
 
 const val INF = 1e18 // Достаточно большое число
 const val EPS = 1e-9
@@ -42,21 +40,13 @@ fun simplex(A: List<DoubleArray>, C: List<Double>): Pair<Double, DoubleArray?> {
         for (j in 0 until n) {
             D[i][j] = A[i][j]
         }
-        // В Python коде D[i][-1] это последний элемент, D[i][-2] предпоследний.
-        // Изначально A[i][-1] это RHS.
-        // Python: [*A[i], -1] -> A[i][0..n-1], RHS, -1
-        // Потом swap: D[i][-2], D[i][-1] = D[i][-1], D[i][-2]
-        // Значит в итоге: A[i]..., -1, RHS
-        // В Kotlin D[i][n] это предпоследний, D[i][n+1] это последний.
-        D[i][n + 1] = A[i][n] // RHS
-        D[i][n] = -1.0        // Вспомогательная переменная для 1-й фазы
+        D[i][n + 1] = A[i][n]
+        D[i][n] = -1.0
     }
 
-    // Заполняем строку целевой функции (C)
     for (j in 0 until n) {
         D[m][j] = C[j]
     }
-    // Остальные элементы (включая последнюю строку) инициализируются нулями по умолчанию
 
     fun pivot(r: Int, s: Int) {
         val k = 1.0 / D[r][s]
@@ -76,7 +66,6 @@ fun simplex(A: List<DoubleArray>, C: List<Double>): Pair<Double, DoubleArray?> {
         }
         D[r][s] = k
 
-        // Swap basic and non-basic indices
         val temp = B[r]
         B[r] = N[s]
         N[s] = temp
@@ -191,7 +180,7 @@ fun simplex(A: List<DoubleArray>, C: List<Double>): Pair<Double, DoubleArray?> {
 
 fun f(initialA: List<DoubleArray>): Int {
     val n = initialA[0].size - 1
-    var bVal = Double.POSITIVE_INFINITY
+    var result = Double.POSITIVE_INFINITY
 
     // Рекурсивная функция ветвления
     fun branch(A: List<DoubleArray>) {
@@ -199,7 +188,7 @@ fun f(initialA: List<DoubleArray>): Int {
         val (validationVal, x) = simplex(A, objectiveC)
 
         // Pruning (отсечение)
-        if (validationVal == -INF || validationVal + EPS >= bVal) {
+        if (validationVal == -INF || validationVal + EPS >= result) {
             return
         }
 
@@ -218,22 +207,10 @@ fun f(initialA: List<DoubleArray>): Int {
 
         if (k == -1) {
             // Целочисленное решение найдено, обновляем лучший результат
-            if (validationVal + EPS < bVal) {
-                bVal = validationVal
+            if (validationVal + EPS < result) {
+                result = validationVal
             }
         } else {
-            // Ветвление: x_k <= v  OR  x_k >= v + 1
-            // 1. x_k <= floor(val)  ->  x_k + slack = floor(val) -> но симплекс работает с равенствами Ax=b.
-            // В Python коде: s = [0]*n+[v]; s[k] = 1 -> добавляется строка: 1*x_k + 0*... = v.
-            // Это ограничение равенства?
-            // Смотрим Python: A+[s]. s[k]=1. s[-1]=v. Это уравнение x_k = v ?
-            // В контексте ILP обычно добавляют неравенства. Но здесь используется симплекс.
-            // Если добавить x_k = 0, а потом x_k = 1, это перебор значений (так как переменные 0/1).
-            // В общем случае:
-            // Python s = [0]*n+[v]; s[k]=1. Это x_k = v.
-            // Python s = [0]*n+[~v]; s[k]=-1. ~v = -v-1. -x_k = -v-1 => x_k = v+1.
-            // Да, это фиксация переменных на 0 или 1 (так как задача бинарная).
-
             // Ветвь 1: x_k = floor(val)
             val s1 = DoubleArray(n + 1)
             s1[k] = 1.0
@@ -241,12 +218,6 @@ fun f(initialA: List<DoubleArray>): Int {
             branch(A + listOf(s1))
 
             // Ветвь 2: x_k = floor(val) + 1
-            // Python: s = [0]*n+[~v]; s[k] = -1.
-            // ~v (bitwise not) для int v=0 -> -1. Для v=1 -> -2.
-            // Уравнение: -1 * x_k = ~v
-            // Если v=0: -x_k = -1 => x_k = 1.
-            // Если v=1: -x_k = -2 => x_k = 2.
-            // Это реализация x_k >= v + 1, но в формате равенства для бинарных переменных это фиксация.
             val s2 = DoubleArray(n + 1)
             s2[k] = -1.0
             s2[n] = (v.toInt().inv()).toDouble() // ~v
@@ -255,141 +226,62 @@ fun f(initialA: List<DoubleArray>): Int {
     }
 
     branch(initialA)
-    return round(bVal).toInt()
+    return round(result).toInt()
 }
 
-// --- Main Parsing and Logic ---
-
 fun main() {
-
     val file = File("./data/10/input.txt")
 
-    val scanner = file.reader()
-    var p1Total = 0
-    var p2Total = 0
-
-    for (line in scanner.readLines()) {
-        if (line.isBlank()) continue
-
-        // Python: m, *p, c = l.split()
-        // Пример строки ожидается: "####. (0,1) (1,2) 0,0,0,1"
-        // Точный формат строки важен. Исходя из Python:
-        // m = первый токен
-        // p = токены посередине
-        // c = последний токен
-
-        val parts = line.trim().split(Regex("\\s+"))
-        val mStr = parts[0]
-        val cStr = parts.last()
-        val pStrs = parts.subList(1, parts.size - 1)
-
-        val n = mStr.length - 2 // Python: n = len(m)-2 (из-за кавычек или мусора? Нет, скорее всего длина строки минус что-то)
-        // В Python m[-2:0:-1].
-        // Если строка '.....', то len=5. m[-2:0:-1] берет слайс.
-        // Предполагаем, что формат строки это что-то типа битовой карты.
-        // Давайте просто следовать логике кода.
-
-        // Python: q = [*map(lambda x: eval(x[:-1]+',)'), p)]
-        // p - это строки вида "(0,1". eval делает из них tuple (0,1).
-        // Значит pStrs это список индексов.
-        val q = pStrs.map { token ->
-            // token looks like "(0,1" or "(2,3,4"
-            // remove '('
-            val cleaned = token.replace("(", "").replace(")", "")
-            cleaned.split(",").map { it.toInt() }
+    data class Machine(
+        val expected: List<Int>,
+        val buttons: List<List<Int>>
+    )
+    val machines = file.readLines().map { l ->
+        val data = l.split(" ")
+        val expected = data.last().let { s ->
+            s.substring(1, s.length - 1)
+                .split(',')
+                .map { it.toInt() }
         }
 
-        // c = [*map(int, c[1:-1].split(','))]
-        // cStr looks like "0,1,0,1" probably wrapped in something?
-        // Python code says c[1:-1]. Это убирает первый и последний символ.
-        // Скорее всего cStr в формате "0,1,0,1" без скобок, но Python код зачем-то делает слайс.
-        // Или cStr это "(0,1,0,1)".
-        // Допустим cStr это "0,1,0,1".
-        val cVals = cStr.substring(1, cStr.length - 1).split(",").map { it.toInt() }
-
-        // --- Part 1: BFS ---
-        val B = IntArray(1 shl n) { -1 }
-        B[0] = 0
-
-        // p = [*map(lambda x: sum(1<<i for i in x), q)]
-        val pMasks = q.map { indices ->
-            indices.fold(0) { acc, idx -> acc or (1 shl idx) }
+        val buttons = data.drop(1).dropLast(1).map { s ->
+            s.substring(1, s.length - 1).split(',').map { it.toInt() }
         }
 
-        // m = int(m[-2:0:-1].replace('#', '1').replace('.', '0'), 2)
-        // Интерпретация строки m. Срез от предпоследнего до 0 (не включая) в обратном порядке.
-        // Если строка "ABCDE", [-2:0:-1] -> D, C, B.
-        // Это очень специфично для Advent of Code.
-        val mSlice = mStr.substring(1, mStr.length - 1).reversed()
-        val mMask = mSlice.replace('#', '1').replace('.', '0').toInt(2)
+        Machine(expected, buttons)
+    }
 
-        val Q = java.util.ArrayDeque<Int>()
-        Q.add(0)
+    val minClicks = machines.take(15).map { machine ->
+        val (expected, buttons) = machine
 
-        // BFS Loop
-        // В Python итерация по списку, который дополняется. В Kotlin используем Queue.
-        // Но Python код: for u in Q: ... Q.append(...). Это работает как очередь.
-        while (!Q.isEmpty()) {
-            val u = Q.pollFirst() // pollFirst == pop(0)
+        val expectedSize = expected.size
+        val buttonsSize = buttons.size
 
-            // Если мы достигли цели mMask?
-            // В Python: p1 += B[m]. Цикл идет до конца всех достижимых состояний.
-            // Это странно, обычно BFS прерывают. Но тут заполняется массив расстояний B.
-            // B[m] потом считывается.
-
-            for (v in pMasks) {
-                val nextState = u xor v
-                // ~B[...] проверка на -1 (в Python ~-1 == 0 (false), ~0 == -1 (true)).
-                // Тут B инициализирован -1.
-                if (B[nextState] == -1) {
-                    B[nextState] = B[u] + 1
-                    Q.add(nextState)
-                }
-            }
-        }
-        p1Total += B[mMask]
-
-        // --- Part 2: Branch-and-Bound ILP ---
-
-        // Python: A = [[0]*-~len(p) for _ in range(2*n+len(p))]
-        // len(p) это количество паттернов (переменных). n это длина целевого вектора.
-        val numVars = q.size // len(p)
-        // Python: -~x = x + 1. Cols = numVars + 1 (last is RHS)
-        // Rows = 2*n + numVars
-        val rows = 2 * n + numVars
-        val cols = numVars + 1
-
+        val rows = 2 * expectedSize + buttonsSize
+        val cols = buttonsSize + 1
         val A = Array(rows) { DoubleArray(cols) }
 
-        // for i in range(len(q)): A[~i][i] = -1
-        // ~i в Python это index from end: -1-i.
-        // A[rows - 1 - i][i] = -1
-        for (i in 0 until numVars) {
+        for (i in 0 until buttonsSize) {
             A[rows - 1 - i][i] = -1.0
         }
 
-        // for i in range(len(q)): for e in q[i]: A[e][i] = 1; A[e+n][i] = -1
-        for (i in 0 until numVars) {
-            for (e in q[i]) {
+        for (i in 0 until buttonsSize) {
+            for (e in buttons[i]) {
                 A[e][i] = 1.0
-                A[e + n][i] = -1.0
+                A[e + expectedSize][i] = -1.0
             }
         }
 
-        // for i in range(n): A[i][-1] = c[i]; A[i+n][-1] = -c[i]
-        // A[i][cols-1] = c[i]
-        for (i in 0 until n) {
-            val cVal = cVals[i].toDouble()
+        for (i in 0 until expectedSize) {
+            val cVal = expected[i].toDouble()
             A[i][cols - 1] = cVal
-            A[i + n][cols - 1] = -cVal
+            A[i + expectedSize][cols - 1] = -cVal
         }
 
-        // Convert Array to List for our function signature
         val aList = A.map { it.clone() }.toMutableList()
 
-        p2Total += f(aList)
+        f(aList)
     }
 
-    println("Part 1: $p1Total")
-    println("Part 2: $p2Total")
+    println("Part 2: ${minClicks.sum()}")
 }
